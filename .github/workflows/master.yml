@@ -1,0 +1,64 @@
+name: "Master"
+on:
+  push:
+    branches:
+    - master
+  schedule:
+  - cron:  '*/15 * * * *'
+
+jobs:
+ 
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        distribution: [stretch, buster]
+    steps:
+    - uses: actions/checkout@v1
+    
+    - name: Build Docker image
+      run: docker build -t debian-${{ matrix.distribution }}:${{github.sha}} -f src/Dockerfile-${{ matrix.distribution }} src
+    
+    - name: Save Docker image artifact
+      run: docker save -o build-${{ matrix.distribution }}.tar debian-${{ matrix.distribution }}:${{github.sha}}
+    
+    - name: Upload image artifact
+      uses: actions/upload-artifact@master
+      with:
+        name: action-image
+        path: build-${{ matrix.distribution }}.tar
+  
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: ['build']
+    strategy:
+      matrix:
+        distribution: [stretch, buster]
+    steps:
+    - uses: actions/checkout@v1
+    - name: Pull Image artifact
+      uses: actions/download-artifact@master
+      with:
+        name: action-image
+    - name: Load image into docker context
+      run: docker load -i action-image/build-${{ matrix.distribution }}.tar
+    - name: Run Structure tests
+      uses: brpaz/structure-tests-action@master
+      with:
+        configFile: .container-structure-test.yaml
+        image: debian-${{ matrix.distribution }}:${{github.sha}}
+        
+  release:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: ['test']
+    steps:
+    - name: schedule debian stretch
+      uses: wei/curl@master
+      with:
+        args: -X POST https://hub.docker.com/api/build/v1/source/be75f772-dcc3-4413-bfa5-fbb143fb245f/trigger/d20af2d2-3240-4e61-95c6-3880eb72362e/call/
+    - name: schedule debian buster
+      uses: wei/curl@master
+      with:
+        args: -X POST https://hub.docker.com/api/build/v1/source/7b7a7ef7-c423-4b4f-82cd-a4b5de112b88/trigger/c820e953-6513-4402-b5db-eec6b86e4cf4/call/
